@@ -1,0 +1,83 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual Environment
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Jupyter Notebook
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# Environment Variables
+.env
+.env.local
+.env.*.local
+
+# Node/Frontend
+node_modules/
+npm-debug.log
+yarn-debug.log
+yarn-error.log
+.npm
+dist/
+build/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+*.sublime-project
+*.sublime-workspace
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Project specific
+artifacts/captures/
+.insightface/
+*.csv
+*.json
+# Uncomment if you want to ignore all data files:
+# data/
+
+# Dependencies (be specific if needed)
+.cache/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Logs
+*.log
+
+# Temporary files
+*.tmp
+*.bak
+*.orig

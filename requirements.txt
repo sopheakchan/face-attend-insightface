@@ -1,0 +1,10 @@
+insightface
+onnxruntime
+onnx
+opencv-python
+numpy
+pandas
+scikit-learn
+fastapi
+uvicorn
+pydantic
