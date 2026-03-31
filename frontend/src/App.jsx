@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import CheckInPanel from "./components/CheckInPanel";
 import AdminPanel from "./components/AdminPanel";
+import Register from "./components/Register";
 
 export default function App() {
   const [activeTab, setActiveTab] = useState("checkin");
@@ -8,7 +9,13 @@ export default function App() {
 
   useEffect(() => {
     const tick = () =>
-      setClock(new Date().toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", second: "2-digit" }));
+      setClock(
+        new Date().toLocaleTimeString("en-US", {
+          hour: "2-digit",
+          minute: "2-digit",
+          second: "2-digit",
+        }),
+      );
     tick();
     const id = setInterval(tick, 1000);
     return () => clearInterval(id);
@@ -24,7 +31,9 @@ export default function App() {
               <path d="M10 2a4 4 0 100 8 4 4 0 000-8zm-7 13c0-3 3.13-5 7-5s7 2 7 5v1H3v-1z" />
             </svg>
           </div>
-          <span className="text-sm font-semibold tracking-tight text-gray-900">FaceAttendance</span>
+          <span className="text-sm font-semibold tracking-tight text-gray-900">
+            FaceAttendance
+          </span>
         </div>
 
         <div className="flex items-center gap-1.5">
@@ -48,11 +57,27 @@ export default function App() {
           >
             Attendance
           </button>
+          <button
+            onClick={() => setActiveTab("register")}
+            className={`text-sm font-medium px-3.5 py-1.5 rounded-md transition-colors ${
+              activeTab === "register"
+                ? "bg-gray-100 text-gray-900"
+                : "text-gray-500 hover:bg-gray-100 hover:text-gray-900"
+            }`}
+          >
+            Register
+          </button>
           <span className="ml-2 font-mono text-xs text-gray-400">{clock}</span>
         </div>
       </nav>
 
-      {activeTab === "checkin" ? <CheckInPanel /> : <AdminPanel />}
+      {activeTab === "checkin" ? (
+        <CheckInPanel />
+      ) : activeTab === "register" ? (
+        <Register />
+      ) : (
+        <AdminPanel />
+      )}
     </div>
   );
 }

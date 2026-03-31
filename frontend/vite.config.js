@@ -9,10 +9,16 @@ const __dirname = path.dirname(__filename);
 const ARTIFACTS_DIR = path.resolve(__dirname, "../artifacts");
 const ATTENDANCE_CSV = path.join(ARTIFACTS_DIR, "attendance_records.csv");
 const PROTOTYPES_CSV = path.join(ARTIFACTS_DIR, "person_prototypes.csv");
+const ENROLLMENT_CSV = path.join(ARTIFACTS_DIR, "enrollment_embeddings.csv");
 const SETTINGS_JSON = path.join(ARTIFACTS_DIR, "attendance_settings.json");
 const DEFAULT_CLASS_START = "08:00";
-const COSINE_THRESHOLD = 0.6;
+
+// Match thresholds from experimental.ipynb exactly
+const DET_THRESH = 0.5;              // Model detection threshold (InsightFace)
+const QUALITY_DET_SCORE = 0.60;      // Keep better face detections
+const COSINE_THRESHOLD = 0.60;       // Recognition threshold
 const RECOGNITION_API_URL = "http://127.0.0.1:8001/recognize";
+const EXTRACT_EMBEDDING_API_URL = "http://127.0.0.1:8001/extract-embedding";
 
 function parseCsv(content) {
   const rows = content
@@ -332,10 +338,244 @@ async function applyAttendanceActionWithFrame(action, imageData) {
   };
 }
 
+async function extractEmbeddingsFromFrames(frames) {
+  const embeddings = [];
+  const validFrames = [];
+  let processedCount = 0;
+  let detectedCount = 0;
+
+  for (const frameData of frames) {
+    try {
+      // Use extraction endpoint that doesn't require prototypes
+      const response = await fetch(EXTRACT_EMBEDDING_API_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ imageData: frameData, threshold: 0.0 }),
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        processedCount++;
+
+        // Convert det_score to number in case it's a string
+        const detScore = Number(result.det_score || 0);
+
+        console.log(`Frame ${processedCount}: det_score=${detScore.toFixed(3)}, success=${result.success}, has_embedding=${!!result.embedding}`);
+
+        // Check if extraction was successful and detection score is good
+        if (result.success && result.embedding && Array.isArray(result.embedding) && result.embedding.length > 0 && detScore >= QUALITY_DET_SCORE) {
+          embeddings.push(result.embedding);
+          validFrames.push(frameData);
+          detectedCount++;
+          console.log(`✓ Frame ${processedCount} accepted (det_score=${detScore.toFixed(3)})`);
+        } else if (!result.success) {
+          console.warn(`Frame ${processedCount}: Extraction failed - ${result.message}`);
+        } else if (!result.embedding) {
+          console.warn(`Frame ${processedCount}: No embedding detected`);
+        } else if (detScore < QUALITY_DET_SCORE) {
+          console.log(`Frame ${processedCount}: det_score too low (${detScore.toFixed(3)} < ${QUALITY_DET_SCORE})`);
+        }
+      } else {
+        console.warn(`Frame API error: ${response.status}`);
+      }
+    } catch (err) {
+      console.warn("Failed to extract embedding from frame:", err);
+    }
+  }
+
+  console.log(`Extraction complete: ${detectedCount}/${processedCount} frames accepted (need det_score >= ${QUALITY_DET_SCORE})`);
+  return { embeddings, validFrames, count: embeddings.length };
+}
+
+function l2Normalize(vec) {
+  let norm = 0;
+  for (let i = 0; i < vec.length; i++) {
+    norm += vec[i] * vec[i];
+  }
+  norm = Math.sqrt(norm);
+  if (norm === 0) {
+    return vec;
+  }
+  return vec.map((v) => v / norm);
+}
+
+function computeMeanEmbedding(embeddings) {
+  if (!embeddings || embeddings.length === 0) {
+    return null;
+  }
+  const mean = new Array(embeddings[0].length).fill(0);
+  for (const emb of embeddings) {
+    for (let i = 0; i < emb.length; i++) {
+      mean[i] += emb[i];
+    }
+  }
+  for (let i = 0; i < mean.length; i++) {
+    mean[i] /= embeddings.length;
+  }
+  return l2Normalize(mean);
+}
+
+function writeEnrollmentCsv(rows) {
+  const embeddingDims = rows.length > 0 ? Object.keys(rows[0]).filter((k) => k.startsWith("e")).length : 512;
+  const embeddingCols = Array.from({ length: embeddingDims }, (_, i) => `e${i}`);
+  const headers = ["person", "role", "image_path", "det_score", ...embeddingCols];
+  fs.mkdirSync(ARTIFACTS_DIR, { recursive: true });
+  fs.writeFileSync(ENROLLMENT_CSV, stringifyCsv(rows, headers), "utf-8");
+}
+
+function writePrototypesCsv(rows) {
+  const embeddingDims = rows.length > 0 ? Object.keys(rows[0]).filter((k) => k.startsWith("e")).length : 512;
+  const embeddingCols = Array.from({ length: embeddingDims }, (_, i) => `e${i}`);
+  const headers = ["person", "role", "samples_used", ...embeddingCols];
+  fs.mkdirSync(ARTIFACTS_DIR, { recursive: true });
+  fs.writeFileSync(PROTOTYPES_CSV, stringifyCsv(rows, headers), "utf-8");
+}
+
+async function enrollPerson(fullName, role, frames) {
+  if (!fullName || !fullName.trim()) {
+    return { success: false, message: "Full name is required" };
+  }
+
+  if (!frames || frames.length === 0) {
+    return { success: false, message: "No frames provided" };
+  }
+
+  console.log(`Starting enrollment for ${fullName} (${role}) with ${frames.length} frames`);
+
+  const { embeddings, count } = await extractEmbeddingsFromFrames(frames);
+
+  if (embeddings.length === 0) {
+    return {
+      success: false,
+      message: `Failed to detect clear faces. Try better lighting or closer to camera. Need det_score >= ${QUALITY_DET_SCORE}`,
+    };
+  }
+
+  console.log(`Processing embeddings for ${fullName}: ${embeddings.length} valid faces found`);
+
+  // Read existing enrollment records
+  const enrollmentRows = readCsv(ENROLLMENT_CSV);
+
+  // Add new enrollment records
+  for (let i = 0; i < embeddings.length; i++) {
+    const emb = embeddings[i];
+    const row = {
+      person: fullName,
+      role: role || "student",
+      image_path: `enroll_${fullName}_${i}`,
+      det_score: "0.9",
+    };
+    for (let j = 0; j < emb.length; j++) {
+      row[`e${j}`] = String(emb[j]);
+    }
+    enrollmentRows.push(row);
+  }
+
+  writeEnrollmentCsv(enrollmentRows);
+  console.log(`Updated enrollment_embeddings.csv with ${embeddings.length} new samples`);
+
+  // Read existing prototypes
+  let prototypeRows = readCsv(PROTOTYPES_CSV);
+
+  // Compute mean embedding
+  const meanEmb = computeMeanEmbedding(embeddings);
+  if (!meanEmb) {
+    return { success: false, message: "Failed to compute mean embedding" };
+  }
+
+  // Check if person already exists in prototypes
+  const existingIdx = prototypeRows.findIndex((p) => p.person && p.person.toLowerCase() === fullName.toLowerCase());
+
+  if (existingIdx >= 0) {
+    // Update existing prototype
+    const proto = prototypeRows[existingIdx];
+    proto.role = role || "student";
+    proto.samples_used = String(embeddings.length);
+    for (let j = 0; j < meanEmb.length; j++) {
+      proto[`e${j}`] = String(meanEmb[j]);
+    }
+    console.log(`Updated existing prototype for ${fullName}`);
+  } else {
+    // Create new prototype
+    const protoRow = {
+      person: fullName,
+      role: role || "student",
+      samples_used: String(embeddings.length),
+    };
+    for (let j = 0; j < meanEmb.length; j++) {
+      protoRow[`e${j}`] = String(meanEmb[j]);
+    }
+    prototypeRows.push(protoRow);
+    console.log(`Created new prototype for ${fullName}`);
+  }
+
+  writePrototypesCsv(prototypeRows);
+  console.log(`Updated person_prototypes.csv - ${prototypeRows.length} total people`);
+
+  return {
+    success: true,
+    full_name: fullName,
+    role: role || "student",
+    samples_used: embeddings.length,
+    message: `Successfully enrolled ${fullName} with ${embeddings.length} face samples`,
+  };
+}
+
 function attendanceApiPlugin() {
   return {
     name: "attendance-api-plugin",
     configureServer(server) {
+      // Enrollment API
+      server.middlewares.use("/api/enrollment", (req, res, next) => {
+        if (!req.url) {
+          next();
+          return;
+        }
+
+        if (req.method === "POST" && req.url === "/enroll") {
+          let body = "";
+          req.on("data", (chunk) => {
+            body += chunk;
+          });
+          req.on("end", async () => {
+            let fullName = "";
+            let role = "student";
+            let frames = [];
+            try {
+              const parsed = JSON.parse(body || "{}");
+              fullName = parsed.full_name || "";
+              role = parsed.role || "student";
+              frames = parsed.frames || [];
+            } catch {
+              fullName = "";
+              role = "student";
+              frames = [];
+            }
+
+            try {
+              const result = await enrollPerson(fullName, role, frames);
+              res.setHeader("Content-Type", "application/json");
+              res.end(JSON.stringify(result));
+            } catch (err) {
+              res.statusCode = 500;
+              res.setHeader("Content-Type", "application/json");
+              res.end(
+                JSON.stringify({
+                  success: false,
+                  message: `Enrollment failed: ${err?.message || "Unknown error"}`,
+                })
+              );
+            }
+          });
+          return;
+        }
+
+        next();
+      });
+
+      // Attendance API
       server.middlewares.use("/api/attendance", (req, res, next) => {
         if (!req.url) {
           next();
