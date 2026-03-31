@@ -47,156 +47,174 @@ The embedding is the key innovation: it converts each face into a point in a 512
 
 ### System Architecture
 
-The system has three tiers that work together:
+The system has three main layers working together:
 
+**Layer 1: Frontend (React + Vite)**
+- Location: Browser at `http://localhost:5174`
+- Components: Check-In/Out panel and Register component
+- User captures: 5-second video (enrollment) or single frame (check-in)
+- Sends to: Vite middleware at `/api/attendance/*` or `/api/enrollment/enroll`
+- Data format: Base64-encoded JPEG frames
+
+**Layer 2: Middleware Processing (Vite Dev Server)**
+- Location: Vite dev server running locally
+- Responsibility: Orchestrate ML pipeline and manage CSV files
+- For enrollment: Loop through frames → Extract embeddings → Filter by quality → Average vectors → Save to CSV
+- For recognition: Single frame → Call FastAPI → Get person name and similarity score
+- Calls: FastAPI service at `http://127.0.0.1:8001`
+
+**Layer 3: ML Inference (FastAPI Service)**
+- Location: `http://127.0.0.1:8001`
+- Model: InsightFace Buffalo_L (pre-trained on millions of faces)
+- Two endpoints:
+  - `/extract-embedding` → Returns 512D embedding + detection score (for enrollment, no prototype matching)
+  - `/recognize` → Returns person name + similarity score + role (for check-in, requires prototypes)
+
+**Data Storage (CSV Files in /artifacts/)**
+- `person_prototypes.csv` → One row per registered person with their embedding
+- `enrollment_embeddings.csv` → All individual frames used during training
+- `attendance_records.csv` → Daily check-in/check-out records with similarity scores
+
+---
+
+### Enrollment Flow (How New Students Register)
+
+1. Student opens browser → Navigate to Register tab
+2. Clicks "Start Capture" → Browser records 5 seconds of video at 2 fps (~10 frames)
+3. Middleware receives all frames and processes:
+   - For each frame: Send to `/extract-embedding` API
+   - InsightFace detects face and extracts 512-dimensional embedding
+   - Check: Is detection_score >= 0.60? (quality filter)
+   - If YES: Keep this embedding
+   - If NO: Discard (too blurry or low confidence)
+4. Collect ~6-8 good embeddings and compute:
+   - Average all embeddings together
+   - L2 normalize the result (make magnitude = 1)
+   - Save to `person_prototypes.csv` as new row
+5. Also save individual frames to `enrollment_embeddings.csv` for analysis
+6. Response: "Successfully enrolled [Name] with 8 face samples"
+7. Result: Student now appears in everyone's recognition database automatically
+
+---
+
+### Recognition Flow (Daily Check-In/Check-Out)
+
+1. Student opens browser → Navigate to Check-In/Out tab
+2. Clicks "Capture" → Browser takes single frame from webcam
+3. Middleware sends frame to `/recognize` API with current prototypes loaded
+4. InsightFace:
+   - Detects face in frame
+   - Extracts 512D embedding from detected face
+   - Compares embedding against ALL prototypes using cosine similarity
+   - Returns: Best matching person + highest similarity score
+5. Check threshold:
+   - If similarity >= 0.60 → Student RECOGNIZED, name shows on screen
+   - If similarity < 0.60 → Student marked UNKNOWN, shows "Face not recognized"
+6. If recognized: Update `attendance_records.csv` with:
+   - Current date, time
+   - Person name and role
+   - Check-in or check-out action
+   - Similarity score for audit trail
+7. Display: Shows person name, role, time, and similarity confidence
+
+---
+
+### What Each API Endpoint Does
+
+**POST /extract-embedding**
+- Purpose: Pure face extraction (used during enrollment)
+- Input: Base64 JPEG frame
+- Process:
+  1. Detect face in image
+  2. Align face to standard pose
+  3. Extract embedding (512 numbers)
+  4. Return detection confidence score
+- Output: `{success: true, embedding: [...], det_score: 0.85}`
+- Does NOT: Compare against prototypes
+
+**POST /recognize**
+- Purpose: Face extraction + matching (used for check-in)
+- Input: Base64 JPEG frame
+- Process:
+  1. Detect face and extract embedding (same as above)
+  2. Load all prototypes from `person_prototypes.csv`
+  3. Compute cosine similarity: embedding · prototype for each person
+  4. Find person with highest similarity
+  5. Check if highest >= threshold (0.60)
+- Output: `{success: true, person: "John", role: "student", similarity: 0.78}`
+- Requires: Prototype CSV must exist and be populated
+
+---
+
+### Key Technical Concepts
+
+**Embedding (512D Vector)**
+- What it is: A fixed-size representation of a face in 512-dimensional space
+- How it works: InsightFace's ResNet50 backbone extracts these numbers from aligned face image
+- Why 512D: Empirically found to balance accuracy and efficiency
+- Property: Similar faces have embeddings close together, different faces far apart
+
+**Cosine Similarity**
+- Formula: `(a · b) / (||a|| * ||b||)` = angle between two embeddings
+- Range: 0 (completely different) to 1 (identical) for normalized vectors
+- Why used: Invariant to brightness/scale changes, computationally efficient
+- In practice: Dot product after L2 normalization is fast matrix multiplication
+
+**L2 Normalization**
+- What it does: Divides embedding by its magnitude to make all vectors length 1
+- Formula: `v_normalized = v / ||v||`
+- Why: Makes cosine similarity = dot product, improves numerical stability
+- When applied: After extraction from model, before storing in CSV, before comparison
+
+**Detection Score (det_score)**
+- What it is: Model's confidence that detected face is actually a face (0 to 1)
+- Used for: Quality filtering during enrollment (keep >= 0.60)
+- High value (>0.9): Perfect face detection, sharp image, frontal angle
+- Low value (<0.5): Blurry, partial face, or false detection
+- Why filter: Bad quality faces create poor prototypes that hurt recognition later
+
+---
+
+### Data Flow Visualization (Text Format)
+
+**Student Enrollment Day 1:**
 ```
-TIER 1: USER INTERFACE (Browser)
-┌─────────────────────────────────────────────────────────────┐
-│  React App @ http://localhost:5174                          │
-│  ┌──────────────────────┐    ┌──────────────────────┐       │
-│  │  CHECK IN / OUT      │    │     REGISTER         │       │
-│  │  ├─ Live camera      │    │  ├─ 5 sec video      │       │
-│  │  ├─ Single frame     │    │  ├─ Name input       │       │
-│  │  └─ Instant match    │    │  ├─ Role selection   │       │
-│  │                      │    │  └─ Submit frames    │       │
-│  └──────────┬───────────┘    └──────────┬───────────┘       │
-│             │                           │                   │
-│             └───────────┬───────────────┘                   │
-│                         │                                   │
-│         Sends: Frame as Base64 string                       │
-│         Path: POST /api/attendance/check-in                │
-│         Path: POST /api/enrollment/enroll                  │
-└─────────────┬──────────────────────────────────────────────┘
-              │
-              ▼
-              
-TIER 2: ML PROCESSING (Vite Dev Server Middleware)
-┌─────────────────────────────────────────────────────────────┐
-│  Middleware @ localhost:5174/api/*                          │
-│                                                              │
-│  FOR ENROLLMENT:                                            │
-│  1. Loop through each frame from video                      │
-│  2. Call FastAPI /extract-embedding endpoint               │
-│  3. Get back: embedding (512 numbers) + detection_score    │
-│  4. Filter: Keep only if detection_score >= 0.60           │
-│  5. Collect all good embeddings                            │
-│                                                              │
-│  FOR RECOGNITION:                                           │
-│  1. Get single frame from camera                           │
-│  2. Call FastAPI /recognize endpoint                       │
-│  3. Get back: person name + similarity score               │
-│  4. If similarity >= 0.60 → RECOGNIZED                     │
-│     else → UNKNOWN                                         │
-│                                                              │
-│  FOR DATA STORAGE:                                          │
-│  1. Average embeddings → mean vector → normalize           │
-│  2. Save to person_prototypes.csv                          │
-│  3. Save individual frames to enrollment_embeddings.csv    │
-│  4. Update attendance_records.csv                          │
-└─────────────┬──────────────────────────────────────────────┘
-              │
-              │ Sends: {imageData: "data:image/jpeg;base64,..."}
-              │ Calls: http://127.0.0.1:8001/extract-embedding
-              │ Calls: http://127.0.0.1:8001/recognize
-              ▼
-
-TIER 3: ML INFERENCE (FastAPI Service)
-┌─────────────────────────────────────────────────────────────┐
-│  FastAPI @ http://127.0.0.1:8001                            │
-│                                                              │
-│  ┌─────────────────────────────────────────────┐            │
-│  │  InsightFace Buffalo_L (Pre-trained Model)  │            │
-│  │                                             │            │
-│  │  Step 1: FACE DETECTION                    │            │
-│  │  └─► SSD detector finds face location      │            │
-│  │      Returns: [x1, y1, x2, y2] + score    │            │
-│  │                                             │            │
-│  │  Step 2: FACE ALIGNMENT                    │            │
-│  │  └─► Locate 106 facial landmarks           │            │
-│  │      Rotate/scale face to standard pose    │            │
-│  │                                             │            │
-│  │  Step 3: EMBEDDING EXTRACTION              │            │
-│  │  └─► ResNet50 backbone                     │            │
-│  │      Output: 512 floating-point numbers    │            │
-│  │      Represents face in embedding space    │            │
-│  │                                             │            │
-│  │  Step 4: COSINE SIMILARITY (recognize only)│            │
-│  │  └─► Load all person prototypes            │            │
-│  │      Compute: dot_product(embedding, proto)│            │
-│  │      Return: highest match + score         │            │
-│  └─────────────────────────────────────────────┘            │
-│                                                              │
-│  TWO ENDPOINTS:                                             │
-│  /extract-embedding → Returns embedding + detection_score  │
-│  /recognize         → Returns person + similarity + role   │
-└─────────────────────────────────────────────────────────────┘
-              │
-              ▼
-
-DATA PERSISTENCE (CSV Files in /artifacts/)
-┌─────────────────────────────────────────────────────────────┐
-│  person_prototypes.csv       (Used by /recognize endpoint)  │
-│  └─ One row per person                                      │
-│     person | role | samples_used | e0 | e1 | ... | e511    │
-│     john   | stud | 8            | 0.1|-0.2| ... | 0.3     │
-│                                                              │
-│  enrollment_embeddings.csv   (For analysis/retraining)      │
-│  └─ Every frame during enrollment                           │
-│     person | image_path | det_score | e0 | e1 | ... | e511 │
-│     john   | frame_1.jpg| 0.85      | 0.1|-0.2| ... | 0.3  │
-│                                                              │
-│  attendance_records.csv      (Daily attendance log)         │
-│  └─ One row per check-in/out event                          │
-│     date | person | check_in | check_out | status | sim    │
-│     2/31 | john   | 08:05    | 17:30     | Late   | 0.78   │
-└─────────────────────────────────────────────────────────────┘
+Browser (5sec video with 10 frames)
+  ↓
+Vite Middleware
+  ├─→ Frame 1 → /extract-embedding → det_score=0.85 ✓ Keep
+  ├─→ Frame 2 → /extract-embedding → det_score=0.82 ✓ Keep
+  ├─→ Frame 3 → /extract-embedding → det_score=0.55 ✗ Reject (too low)
+  ├─→ Frame 4 → /extract-embedding → det_score=0.88 ✓ Keep
+  ... (repeat for all 10 frames)
+  ↓
+Collect 8 good embeddings
+  ↓
+Average + L2 normalize
+  ↓
+Save to person_prototypes.csv
+  ↓
+Now: Student can be recognized!
 ```
 
-### Simplified Flow Diagram
-
-**Enrollment (New Student)**
+**Student Check-In Day 2:**
 ```
-Student captures 5s video
-       ↓
-Browser: Extract ~10 frames
-       ↓
-For each frame:
-  └─ POST to /extract-embedding
-       ↓
-  └─ FastAPI detects face + extracts 512D embedding
-       ↓
-  └─ Check: is detection_score >= 0.60?
-       ├─ YES: Keep this embedding
-       └─ NO: Discard (low quality)
-       ↓
-Collect all good embeddings (~6-8 frames)
-       ↓
-Compute: Average of all embeddings → L2 normalize
-       ↓
-Save to person_prototypes.csv (now can be recognized)
-       ↓
-Also save individual frames to enrollment_embeddings.csv
-```
-
-**Recognition (Check-In)**
-```
-Student looks at camera
-       ↓
-Browser: Capture 1 frame
-       ↓
-POST to /recognize endpoint
-       ↓
-FastAPI:
-  ├─ Detect face + extract embedding
-  ├─ Load all prototypes from person_prototypes.csv
-  ├─ Compute cosine similarity with each
-  └─ Return: best match + score
-       ↓
-Is similarity >= 0.60?
-  ├─ YES: person = RECOGNIZED, update attendance
-  └─ NO: person = UNKNOWN, user sees error
-       ↓
-Update attendance_records.csv with check-in time + similarity score
+Browser (single webcam frame)
+  ↓
+Vite Middleware
+  ↓
+/recognize endpoint
+  ├─→ Extract embedding from new frame
+  ├─→ Load all 50 prototypes from CSV
+  ├─→ Compute similarity with each: [0.78, 0.45, 0.22, ..., 0.91]
+  ├─→ Find max similarity: 0.91 (matches John)
+  ├─→ Check: 0.91 >= 0.60? YES
+  ↓
+Return: "John recognized at 08:05, similarity=0.91"
+  ↓
+Update attendance_records.csv
+  ↓
+Display to user: "Welcome John, Student"
 ```
 
 ### Data Flow: Enrollment
