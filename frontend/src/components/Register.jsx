@@ -7,6 +7,20 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+const EXTERNAL_CAMERA_KEYWORDS = ["logitech", "logi", "usb", "webcam", "brio", "c920", "c922", "streamcam"];
+
+function isPreferredExternalCamera(label) {
+  const text = String(label || "").toLowerCase();
+  return EXTERNAL_CAMERA_KEYWORDS.some((word) => text.includes(word));
+}
+
+function stopStreamTracks(stream) {
+  if (!stream) {
+    return;
+  }
+  stream.getTracks().forEach((track) => track.stop());
+}
+
 function todayStr() {
   return new Date().toLocaleDateString("en-US", {
     weekday: "short",
@@ -32,10 +46,29 @@ export default function Register() {
   const [capturedFrames, setCapturedFrames] = useState([]);
 
   async function startCamera() {
-    const stream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: "user" },
+    let stream = await navigator.mediaDevices.getUserMedia({
+      video: true,
       audio: false,
     });
+
+    const currentDeviceId = stream.getVideoTracks()[0]?.getSettings?.().deviceId || "";
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    const videoInputs = devices.filter((d) => d.kind === "videoinput");
+    const preferredExternal = videoInputs.find((d) => isPreferredExternalCamera(d.label));
+
+    if (preferredExternal?.deviceId && preferredExternal.deviceId !== currentDeviceId) {
+      try {
+        const preferredStream = await navigator.mediaDevices.getUserMedia({
+          video: { deviceId: { exact: preferredExternal.deviceId } },
+          audio: false,
+        });
+        stopStreamTracks(stream);
+        stream = preferredStream;
+      } catch {
+        // Keep current stream as fallback when preferred device cannot be opened.
+      }
+    }
+
     streamRef.current = stream;
     if (videoRef.current) {
       videoRef.current.srcObject = stream;
@@ -397,8 +430,8 @@ export default function Register() {
               }`}
             >
               {enrollmentResult.success
-                ? `✓ ${fullName} registered successfully with ${enrollmentResult.samples_used} enrollment samples`
-                : `✗ ${enrollmentResult.message}`}
+                ? `${fullName} registered successfully with ${enrollmentResult.samples_used} enrollment samples`
+                : `${enrollmentResult.message}`}
             </div>
           )}
         </div>
