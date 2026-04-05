@@ -1,5 +1,36 @@
 # Face Recognition Attendance System
 
+## Quick Start
+
+**Requirements:** Python 3.10+, Node.js 16+, a webcam
+
+```bash
+# 1. Clone and enter the project
+git clone <your-repo-url>
+cd my-own-experiement
+
+# 2. Run setup (creates venv, installs all deps — once only)
+# Windows:
+setup.bat
+# Mac/Linux:
+chmod +x setup.sh && ./setup.sh
+
+# 3. Activate Python venv, then start everything with one command
+# Windows:
+env\Scripts\activate
+npm start
+
+# Mac/Linux:
+source env/bin/activate
+npm start
+```
+
+Open **http://localhost:5174** in your browser.
+
+> First run downloads InsightFace models (~500MB) automatically into `.insightface/`. This is a one-time download.
+
+---
+
 A full-stack web application for real-time face recognition-based attendance tracking. This system captures student/teacher faces during enrollment, extracts deep face embeddings, and recognizes them during check-in/check-out, all with a modern web interface and a production-grade ML inference service.
 
 ## Project Overview
