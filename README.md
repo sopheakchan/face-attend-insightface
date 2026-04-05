@@ -7,15 +7,13 @@ Traditional attendance systems are inefficient and time-consuming. There is also
 
 Before diving into how the system works, it's important to understand why we chose this specific approach over simple CNN classifiers or YOLO-based detection.
 
-A naive approach would train a CNN to classify identities directly (e.g., "Student 1", "Student 2", etc.). This sounds straightforward but has major drawbacks:
+A naive approach would train a model classify identities directly (e.g., "Student 1", "Student 2", etc.). This sounds straightforward but has major drawbacks:
 
 - **Closed-set problem** : the network learns only the exact faces in training set. Enrolling a new student requires retraining the entire model
 - **Scalability** : each new person added to the system requires retraining with all previous data
 - **Limited generalization** : the model hasn't seen the new person's face during training, so accuracy is unpredictable.
 
-YOLO, on the other hand, is designed for object detection (finding bounding boxes), not specifically for identifying individuals. While it is possible to train YOLO with classes like different persons, this turns it into a closed-set problem similar to a CNN classifier. Adding a new person would require retraining the model, which is not scalable.
-
-Instead, we use an embedding-based approach, where each face is represented as a vector and compared using similarity metrics. This allows new identities to be added without retraining the model, making the system more flexible and scalable for real-world use.
+Adding a new person would require retraining the model, which is not scalable. Instead, we use an embedding-based approach, where each face is represented as a vector and compared using similarity metrics. This allows new identities to be added without retraining the model, making the system more flexible and scalable for real-world use.
 
 ### InsightFace + Cosine Similarity
 
@@ -103,7 +101,7 @@ Response format:
   "success": true,
   "embedding": [0.123, -0.456, ...],
   "det_score": 0.85,
-  "person": "John Doe",
+  "person": "holland",
   "role": "student",
   "similarity": 0.75,
   "message": "Matched"
