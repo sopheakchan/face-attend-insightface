@@ -114,7 +114,7 @@ Response format:
 
 ```bash
 #  Clone the repo
-git clone <your-repo-url>
+git clone <https://github.com/sopheakchan/face-attend-insightface>
 cd face-attend-insightface
 
 #  Create and activate a Python virtual environment
