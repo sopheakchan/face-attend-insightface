@@ -5,29 +5,33 @@
 **Requirements:** Python 3.10+, Node.js 16+, a webcam
 
 ```bash
-# 1. Clone and enter the project
+# 1. Clone
 git clone <your-repo-url>
 cd my-own-experiement
 
-# 2. Run setup (creates venv, installs all deps — once only)
-# Windows:
-setup.bat
-# Mac/Linux:
-chmod +x setup.sh && ./setup.sh
+# 2. Install root dependencies (gets concurrently)
+npm install
 
-# 3. Activate Python venv, then start everything with one command
+# 3. Create and activate a Python virtual environment
+python -m venv env
+
 # Windows:
 env\Scripts\activate
-npm start
-
 # Mac/Linux:
 source env/bin/activate
+
+# 4. Install Python dependencies
+pip install -r requirements.txt
+
+# 5. Start everything (installs frontend deps automatically on first run)
 npm start
 ```
 
 Open **http://localhost:5174** in your browser.
 
-> First run downloads InsightFace models (~500MB) automatically into `.insightface/`. This is a one-time download.
+> **First run:** InsightFace downloads ~500MB of face recognition models into `.insightface/` automatically. This is a one-time download — subsequent starts are instant.
+
+> **Tip:** Steps 2–4 are one-time setup. After that, just activate your venv and `npm start`.
 
 ---
 
