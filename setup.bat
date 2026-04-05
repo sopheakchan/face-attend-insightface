@@ -1,7 +1,7 @@
 @echo off
 echo === FaceAttend Setup ===
 
-:: 1. Python virtual environment
+:: Python virtual environment
 if not exist "env\" (
     echo [1/4] Creating Python virtual environment...
     python -m venv env
@@ -9,17 +9,17 @@ if not exist "env\" (
     echo [1/4] Virtual environment already exists, skipping.
 )
 
-:: 2. Activate and install Python deps
+::  Activate and install Python deps
 echo [2/4] Installing Python dependencies...
 call env\Scripts\activate.bat
 pip install -r requirements.txt
 
-:: 3. Install Node deps
+::  Install Node deps
 echo [3/4] Installing Node.js dependencies...
 call npm install
 call npm install --prefix frontend
 
-:: 4. Create artifacts directory if missing
+::  Create artifacts directory if missing
 echo [4/4] Setting up artifacts directory...
 if not exist "artifacts\" mkdir artifacts
 
