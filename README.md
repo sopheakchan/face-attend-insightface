@@ -31,16 +31,15 @@ Each dimension stores latent facial information such as facial structure, distan
 | 3    | D    | Teacher | [0.7628, 0.8905, 0.4687, ...] |
 | 4    | E    | Student | [-0.1354, -0.2822, -0.4263, ...] |
 
-During recognition, we compare the new embedding against all stored prototypes using Cosine Similarity, Cosine similarity measures the similarity between two vectors based on the angle between them.
+During recognition, we compare the new embedding with all stored prototypes using cosine similarity, which measures how similar two vectors are based on the angle between them.
 
 ![Cosine Similarity](assets/cosin-similairty.png)
 
 Where:
-a · b is the dot product of the two vectors
-||a|| and ||b|| are the magnitudes of the vectors
-
-If two vectors are very similar → cosine similarity is close to 1
-If they are different → the value is closer to 0
+- a · b is the dot product of the two vectors
+- ||a|| and ||b|| are the magnitudes of the vectors
+- If two vectors are very similar, cosine similarity is close to 1
+- If they are different, the value is closer to 0
 
 Similar faces produce similar vectors, while different faces produce very different ones. We visualized this in [`visualization.ipynb`](visualization.ipynb) — each person's embeddings form a tight cluster, and unknown faces scatter far from all of them.
 
