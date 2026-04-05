@@ -5,7 +5,7 @@ Traditional attendance systems are inefficient and time-consuming. There is also
 
 ## Overview
 
-Before diving into how the system works, it's important to understand why we chose this specific approach over alternatives like CNN classifiers or YOLO-based detection.
+Before diving into how the system works, it's important to understand why we chose this specific approach over simple CNN classifiers or YOLO-based detection.
 
 A naive approach would train a CNN to classify identities directly (e.g., "Student 1", "Student 2", etc.). This sounds straightforward but has major drawbacks:
 
@@ -14,6 +14,8 @@ A naive approach would train a CNN to classify identities directly (e.g., "Stude
 - **Limited generalization** : the model hasn't seen the new person's face during training, so accuracy is unpredictable.
 
 YOLO, on the other hand, is designed for object detection (finding bounding boxes), not specifically for identifying individuals. While it is possible to train YOLO with classes like different persons, this turns it into a closed-set problem similar to a CNN classifier. Adding a new person would require retraining the model, which is not scalable.
+
+Instead, we use an embedding-based approach, where each face is represented as a vector and compared using similarity metrics. This allows new identities to be added without retraining the model, making the system more flexible and scalable for real-world use.
 
 ### InsightFace + Cosine Similarity
 
