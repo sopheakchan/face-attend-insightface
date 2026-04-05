@@ -77,7 +77,7 @@ Similar faces produce similar vectors, while different faces produce very differ
 | Frontend | React 18, Vite, Tailwind CSS |
 | Backend API | FastAPI, Uvicorn |
 | Face Recognition | InsightFace Buffalo_L (ONNX Runtime) |
-| Data | CSV files, no database in this experiement case |
+| Data | CSV files, no database in this experiement  |
 | Dev Runner | concurrently, one `npm start` launches everything |
 
 ---
