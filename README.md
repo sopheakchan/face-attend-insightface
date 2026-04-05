@@ -137,7 +137,7 @@ npm start
 
 The app will start at **http://localhost:5173** 
 
-> **First in the run:** InsightFace automatically downloads ~500MB of face recognition models into `.insightface/`. This is a one-time download — subsequent starts are instant.
+> **In the first run:** InsightFace automatically downloads ~500MB of face recognition models into `.insightface/`. This is a one-time download — subsequent starts are instant.
 ---
 
 ## Inspiration & Resources
